@@ -1,0 +1,213 @@
+function [linecollect] = getlinefromimages_3d(imgstack)
+
+%This program allows user to use mouse and keyboards to locate line objects in a 
+%image stack (eg. confocal xyz scans)
+
+%input: imgstack is an image stack, both rgb (not well) or grayscale image stacks are
+%supported. For rgb image, all three channels should be between 0 to 1.
+
+%--------------------------------------------------
+%user interface:
+%left/right button to select the two ends of a line,
+%left or right key to change the current frame
+%'y' key to accept a line if both ends are defined
+%'q' key to finish
+
+%display -- main pannel:
+
+%on top of the current frame, a red circle indicates the end defined by
+%left mouse button, a blue circle indicates the end defined by right mouse
+%button
+%current line will be shown as a blue dashed line, once accepted with 'y'
+%key, it will be shown as solid line
+%a accepted lines will be shown on top of the image when the frame number
+%is in between the the z coordinates of the two ends of the the
+%corresponding line
+
+%display---side pannel
+
+%if both ends are defined of a current line and z coordinates of the two
+%ends are not the same, a cross-section a long the t-z plane is shown in
+%the side pannel. t is the direction along the line. 
+
+%--------------------------------------------------------
+%Troubleshoot: due to the delay in reading user input, occasionally the
+%active window may be not in focus. If you find the program stops
+%responding, click the image window.
+
+%Dependence: to maximize the use of screeen space, the program use
+%subplot_tight, which is a wraper of subplot and can be downloaded from
+%MATLAB file exchange.
+
+%written by Bo Sun Oct. 16th 2014
+
+figure(200)
+set(gcf,'Position',[300,300,900,900]);
+subplot_tight(2,3,[1 2 4 5],[0.01,0.01])
+flagcontinue = 1;
+flagmode = 0;
+frameindex = 1;
+stacksize = size(imgstack);
+if(length(stacksize) == 3)
+    imgtoshow = squeeze(imgstack(:,:,frameindex));
+elseif(length(stacksize) == 4)
+    imgtoshow = squeeze(imgstack(:,:,:,frameindex));
+end
+
+imshow(imgtoshow,'border','tight');
+axis off;
+
+title({'use left/right mouse button to define a line and left/right key to seek frames',...
+    'y key to accept a line, q key to terminate'})
+ptx1 = 0;
+pty1 = 0;
+ptx2 = 0;
+pty2 = 0;
+ptz1 = 0;
+ptz2 = 0;
+nline = 0;
+
+
+while flagcontinue
+    
+    [x,y,p] = ginput(1);
+    if(p == 1)
+        ptx1 = x;
+        pty1 = y;
+        ptz1 = frameindex;
+        %npoints = npoints+1;
+        %linelists{npoints,1} = x;
+        %linelists{npoints,2} = y;
+    elseif (p ==3)
+        %if (npoints>0)
+        %    npoints = npoints-1;
+        %end
+        ptx2 = x;
+        pty2 = y;
+        ptz2 = frameindex;
+    elseif (p == 28)
+        frameindex = frameindex-1;
+        if frameindex<1
+            frameindex = 1;
+        end
+    elseif (p == 29)
+        frameindex = frameindex+1;
+        if frameindex > stacksize(end)
+            frameindex = stacksize(end);
+        end
+        
+    elseif (p == 121)%ready to accept a line
+        if (max(abs([ptx1,pty1,ptz1]))>0) &&...
+                (max(abs([ptx2,pty2,ptz2]))>0)
+            nline = nline+1;
+            linecollect{nline} = [ptx1,pty1,ptz1,ptx2,pty2,ptz2];
+            ptx1 = 0; pty1 = 0; ptz1 = 0;
+            ptx2 = 0; pty2 = 0; ptz2 = 0;
+        end
+    elseif (p == 113)
+        flagcontinue = 0;
+    end
+    if(length(stacksize) == 3)
+        imgtoshow = squeeze(imgstack(:,:,frameindex));
+    elseif(length(stacksize) == 4)
+        imgtoshow = squeeze(imgstack(:,:,:,frameindex));
+    end
+    figure(200)
+    set(gcf,'Position',[300,300,900,900]);
+    %subplot(2,3,[1 2 4 5])
+    subplot_tight(2,3,[1 2 4 5],[0.01,0.01])
+    imshow(imgtoshow,'border','tight');
+    
+    hold on;
+    title(sprintf('frame %d of %d',frameindex,stacksize(end)));
+    if(nline>=1)
+        for i=1:nline
+            linepos = linecollect{i};
+            ptx1s = linepos(1);
+            pty1s = linepos(2);
+            ptz1s = linepos(3);
+            ptx2s = linepos(4);
+            pty2s = linepos(5);
+            ptz2s = linepos(6);
+            if((frameindex-ptz1s)*(frameindex-ptz2s)<=0)
+                plot([ptx1s,ptx2s],[pty1s,pty2s],'r','LineWidth',2);
+            end
+        end
+    end
+    if(max(abs([ptx1,pty1]))>0)
+        plot(ptx1,pty1,'ro');
+    end
+    if(max(abs([ptx2,pty2]))>0)
+        plot(ptx2,pty2,'go');
+    end
+    if (max(abs([ptx1,pty1,ptz1]))>0) &&...
+            (max(abs([ptx2,pty2,ptz2]))>0)
+        plot([ptx1,ptx2],[pty1,pty2],'b--','LineWidth',2);
+        
+    end
+    
+    axis off;
+    hold off;
+    if(p<4)
+    subplot_tight(2,3,[3 6],[0.01,0.01])
+    if (max(abs([ptx1,pty1,ptz1]))>0) &&...
+            (max(abs([ptx2,pty2,ptz2]))>0) &&...
+            (ptz1~=ptz2)
+        
+        
+        % interpolate the crosssection of the line
+        lenlinexy  = sqrt((ptx1-ptx2)^2+(pty1-pty2)^2);
+        lenlinez = abs(ptz1-ptz2);
+        stepxy = 0.5/lenlinexy;
+        stepz = 0.5/lenlinez;        
+        [lambdaz,lambdaxy] = meshgrid(-0.5:stepz:1.5,-0.5:stepxy:1.5);
+        %we want to make sure higher frame number goes up
+        if(ptz1 <= ptz2)
+            ptup = ptz2;
+            ptbt = ptz1;
+            crossz1 = 1;
+            crossz2 = 0;
+        else
+            ptup = ptz1;
+            ptbt = ptz2; 
+            crossz1 = 0;
+            crossz2 = 1;                      
+        end
+        
+        xg = ptx1*lambdaxy+ptx2*(1-lambdaxy);
+        yg = pty1*lambdaxy+pty2*(1-lambdaxy);
+        zg = ptbt*lambdaz+ptup*(1-lambdaz);
+        if(length(stacksize) == 3)  % grayscale image, simply interpolate
+            crosssection = interp3(double(imgstack),xg,yg,zg,'cubic',0);
+            imagesc(-0.5:stepxy:1.5,-0.5:stepz:1.5,crosssection');
+            axis off;
+            colormap(gray(256));
+            hold on;
+            plot(1,crossz1,'ro');
+            plot(0,crossz2,'go');
+            plot([1,0],[crossz1,crossz2],'b--');
+            hold off;
+            subplot_tight(2,3,[1 2 4 5],[0.01,0.01]);
+        end
+        if(length(stacksize) == 4) % rgb image, channel by channel
+            szcross = size(xg);
+            newimg = zeros(szcross(1),szcross(2),3);
+            newimg(:,:,1) = interp3(squeeze(imgstack(:,:,:,1)),xg,yg,zg,'cubic',0);
+            newimg(:,:,2) = interp3(squeeze(imgstack(:,:,:,2)),xg,yg,zg,'cubic',0);
+            newimg(:,:,3) = interp3(squeeze(imgstack(:,:,:,3)),xg,yg,zg,'cubic',0);
+            crosssection = newimg;
+            imshow(crosssection)   
+            axis off;
+            subplot_tight(2,3,[1 2 4 5],[0.01,0.01]);
+        end
+        
+    end
+    end
+ 
+    
+    
+end
+
+
+close(200);
+end
